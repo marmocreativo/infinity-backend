@@ -9,6 +9,8 @@ use App\Models\Order;
 use App\Models\OrderEvent;
 use Illuminate\Http\Request;
 use App\Services\PushNotificationService;
+use App\Models\Payment;
+use App\Services\OrderAssignmentService;
 
 class OrderController extends Controller
 {
@@ -28,7 +30,7 @@ class OrderController extends Controller
         return new OrderResource($order->load(['courier', 'evidences', 'events']));
     }
 
-    public function store(StoreOrderRequest $request, PushNotificationService $push)
+    public function store(StoreOrderRequest $request, PushNotificationService $push, OrderAssignmentService $assignmentService)
     {
         $clinic = $request->user()->clinic;
 
@@ -41,16 +43,40 @@ class OrderController extends Controller
 
         $order->refresh();
 
+        Payment::create([
+            'order_id' => $order->id,
+            'amount' => $order->price,
+            'gateway' => 'stripe',
+            'status' => 'pending',
+        ]);
+
         OrderEvent::create([
             'order_id' => $order->id,
             'event_type' => 'created',
             'created_by' => $request->user()->id,
         ]);
 
-        $push->sendToRole('admin', 'Nuevo pedido', "La clínica {$clinic->business_name} creó un pedido nuevo.", [
-            'order_id' => (string) $order->id,
-            'type' => 'order_created',
-        ]);
+        $wasAutoAssigned = $assignmentService->tryAutoAssign($order);
+
+        if ($wasAutoAssigned) {
+            $order->refresh();
+
+            OrderEvent::create([
+                'order_id' => $order->id,
+                'event_type' => 'assigned',
+                'created_by' => null, // asignación automática, sin usuario humano
+            ]);
+
+            $push->sendToUser($order->courier, 'Pedido nuevo asignado', "Se te asignó automáticamente el pedido #{$order->id}.", [
+                'order_id' => (string) $order->id,
+                'type' => 'order_assigned',
+            ]);
+        } else {
+            $push->sendToRole('admin', 'Nuevo pedido', "La clínica {$clinic->business_name} creó un pedido nuevo.", [
+                'order_id' => (string) $order->id,
+                'type' => 'order_created',
+            ]);
+        }
 
         return new OrderResource($order);
     }

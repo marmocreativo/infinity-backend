@@ -13,6 +13,8 @@ use App\Http\Controllers\Api\Mensajero\ReportController as MensajeroReportContro
 use App\Http\Controllers\Api\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Api\Admin\CourierManagementController;
 use App\Http\Controllers\Api\Admin\ClinicManagementController;
+use App\Http\Controllers\Api\Cliente\PaymentController;
+use App\Http\Controllers\Api\Admin\AssignmentSettingController;
 
 Route::prefix('auth')->group(function () {
     Route::post('register', [AuthController::class, 'registerCliente']);
@@ -35,6 +37,9 @@ Route::middleware(['auth:sanctum', 'role:cliente'])->prefix('cliente')->group(fu
     Route::get('orders', [ClienteOrderController::class, 'index']);
     Route::post('orders', [ClienteOrderController::class, 'store']);
     Route::get('orders/{order}', [ClienteOrderController::class, 'show']);
+
+    Route::get('orders/{order}/payment', [PaymentController::class, 'show']);
+    Route::post('orders/{order}/pay', [PaymentController::class, 'pay']);
 });
 
 Route::middleware(['auth:sanctum', 'role:mensajero'])->prefix('mensajero')->group(function () {
@@ -74,4 +79,7 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(functi
     Route::get('users/clinics', [ClinicManagementController::class, 'index']);
     Route::put('users/clinics/{clinic}', [ClinicManagementController::class, 'update']);
     Route::patch('users/clinics/{clinic}/status', [ClinicManagementController::class, 'updateStatus']);
+
+    Route::get('assignment-settings', [AssignmentSettingController::class, 'show']);
+    Route::put('assignment-settings', [AssignmentSettingController::class, 'update']);
 });
