@@ -11,6 +11,8 @@ use App\Http\Controllers\Api\Admin\CourierController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\Mensajero\ReportController as MensajeroReportController;
 use App\Http\Controllers\Api\Admin\ReportController as AdminReportController;
+use App\Http\Controllers\Api\Admin\CourierManagementController;
+use App\Http\Controllers\Api\Admin\ClinicManagementController;
 
 Route::prefix('auth')->group(function () {
     Route::post('register', [AuthController::class, 'registerCliente']);
@@ -63,4 +65,13 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(functi
 
     Route::get('reports/orders', [AdminReportController::class, 'orders']);
     Route::get('reports/couriers-summary', [AdminReportController::class, 'couriersSummary']);
+
+    Route::get('users/couriers', [CourierManagementController::class, 'index']);
+    Route::post('users/couriers', [CourierManagementController::class, 'store']);
+    Route::put('users/couriers/{courier}', [CourierManagementController::class, 'update']);
+    Route::patch('users/couriers/{courier}/status', [CourierManagementController::class, 'updateStatus']);
+
+    Route::get('users/clinics', [ClinicManagementController::class, 'index']);
+    Route::put('users/clinics/{clinic}', [ClinicManagementController::class, 'update']);
+    Route::patch('users/clinics/{clinic}/status', [ClinicManagementController::class, 'updateStatus']);
 });
