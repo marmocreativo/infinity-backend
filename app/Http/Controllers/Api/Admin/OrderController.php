@@ -8,6 +8,7 @@ use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Models\OrderEvent;
 use Illuminate\Http\Request;
+use App\Services\PushNotificationService;
 
 class OrderController extends Controller
 {
@@ -31,7 +32,7 @@ class OrderController extends Controller
         return new OrderResource($order->load(['clinic', 'courier', 'evidences', 'events']));
     }
 
-    public function assign(AssignOrderRequest $request, Order $order)
+    public function assign(AssignOrderRequest $request, Order $order, PushNotificationService $push)
     {
         abort_unless($order->status === 'pending', 422, 'Solo se pueden asignar pedidos pendientes.');
 
@@ -46,7 +47,11 @@ class OrderController extends Controller
             'created_by' => $request->user()->id,
         ]);
 
-        // TODO: notificar al mensajero (push) de pedido nuevo
+        $courier = $order->courier;
+        $push->sendToUser($courier, 'Pedido nuevo asignado', "Se te asignó el pedido #{$order->id}.", [
+            'order_id' => (string) $order->id,
+            'type' => 'order_assigned',
+        ]);
 
         return new OrderResource($order->load('courier'));
     }

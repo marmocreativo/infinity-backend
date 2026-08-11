@@ -53,4 +53,8 @@ class User extends Authenticatable
     {
         return $this->hasMany(CourierShift::class, 'courier_id');
     }
+    public function deviceTokens()
+    {
+        return $this->hasMany(DeviceToken::class);
+    }
 }

@@ -9,6 +9,7 @@ use App\Models\Order;
 use App\Models\OrderEvent;
 use App\Models\OrderEvidence;
 use Illuminate\Http\Request;
+use App\Services\PushNotificationService;
 
 class OrderController extends Controller
 {
@@ -39,7 +40,7 @@ class OrderController extends Controller
         return new OrderResource($order);
     }
 
-    public function confirmPickup(UploadEvidenceRequest $request, Order $order)
+    public function confirmPickup(UploadEvidenceRequest $request, Order $order, PushNotificationService $push)
     {
         $this->authorizeCourier($request, $order);
         $this->assertStatus($order, ['en_route_pickup']);
@@ -57,21 +58,15 @@ class OrderController extends Controller
         $order->update(['status' => 'picked_up']);
         $this->logEvent($order, 'picked_up', $request->user()->id);
 
+        $push->sendToUser($order->clinic->user, 'Muestra recolectada', "Tu pedido #{$order->id} fue recolectado.", [
+            'order_id' => (string) $order->id,
+            'type' => 'order_picked_up',
+        ]);
+
         return new OrderResource($order->load('evidences'));
     }
 
-    public function startDelivery(Request $request, Order $order)
-    {
-        $this->authorizeCourier($request, $order);
-        $this->assertStatus($order, ['picked_up']);
-
-        $order->update(['status' => 'en_route_delivery']);
-        $this->logEvent($order, 'en_route_delivery', $request->user()->id);
-
-        return new OrderResource($order);
-    }
-
-    public function confirmDelivery(UploadEvidenceRequest $request, Order $order)
+    public function confirmDelivery(UploadEvidenceRequest $request, Order $order, PushNotificationService $push)
     {
         $this->authorizeCourier($request, $order);
         $this->assertStatus($order, ['en_route_delivery']);
@@ -89,7 +84,23 @@ class OrderController extends Controller
         $order->update(['status' => 'delivered']);
         $this->logEvent($order, 'delivered', $request->user()->id);
 
+        $push->sendToUser($order->clinic->user, 'Pedido entregado', "Tu pedido #{$order->id} fue entregado en destino.", [
+            'order_id' => (string) $order->id,
+            'type' => 'order_delivered',
+        ]);
+
         return new OrderResource($order->load('evidences'));
+    }
+
+    public function startDelivery(Request $request, Order $order)
+    {
+        $this->authorizeCourier($request, $order);
+        $this->assertStatus($order, ['picked_up']);
+
+        $order->update(['status' => 'en_route_delivery']);
+        $this->logEvent($order, 'en_route_delivery', $request->user()->id);
+
+        return new OrderResource($order);
     }
 
     private function authorizeCourier(Request $request, Order $order): void

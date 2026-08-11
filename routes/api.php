@@ -5,6 +5,10 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\Cliente\OrderController as ClienteOrderController;
 use App\Http\Controllers\Api\Mensajero\OrderController as MensajeroOrderController;
 use App\Http\Controllers\Api\Admin\OrderController as AdminOrderController;
+use App\Http\Controllers\Api\Mensajero\ShiftController;
+use App\Http\Controllers\Api\Mensajero\LocationController;
+use App\Http\Controllers\Api\Admin\CourierController;
+use App\Http\Controllers\Api\DeviceTokenController;
 
 Route::prefix('auth')->group(function () {
     Route::post('register', [AuthController::class, 'registerCliente']);
@@ -14,6 +18,12 @@ Route::prefix('auth')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
         Route::get('me', [AuthController::class, 'me']);
     });
+});
+
+// --- Recursos compartidos entre los 3 roles ---
+Route::middleware('auth:sanctum')->group(function () {
+    Route::post('device-tokens', [DeviceTokenController::class, 'store']);
+    Route::delete('device-tokens', [DeviceTokenController::class, 'destroy']);
 });
 
 // --- Rutas por rol (protegidas) ---
@@ -30,10 +40,20 @@ Route::middleware(['auth:sanctum', 'role:mensajero'])->prefix('mensajero')->grou
     Route::post('orders/{order}/confirm-pickup', [MensajeroOrderController::class, 'confirmPickup']);
     Route::post('orders/{order}/start-delivery', [MensajeroOrderController::class, 'startDelivery']);
     Route::post('orders/{order}/confirm-delivery', [MensajeroOrderController::class, 'confirmDelivery']);
+
+    Route::get('shifts/current', [ShiftController::class, 'current']);
+    Route::post('shifts/start', [ShiftController::class, 'start']);
+    Route::post('shifts/end', [ShiftController::class, 'end']);
+
+    Route::post('locations', [LocationController::class, 'store']);
 });
 
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(function () {
     Route::get('orders', [AdminOrderController::class, 'index']);
     Route::get('orders/{order}', [AdminOrderController::class, 'show']);
     Route::post('orders/{order}/assign', [AdminOrderController::class, 'assign']);
+
+    Route::get('couriers/on-duty', [CourierController::class, 'onDuty']);
+    Route::get('couriers/{courier}/shifts', [CourierController::class, 'shifts']);
+    Route::get('shifts/{shift}/locations', [CourierController::class, 'shiftLocations']);
 });
