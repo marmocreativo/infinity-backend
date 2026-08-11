@@ -9,6 +9,8 @@ use App\Http\Controllers\Api\Mensajero\ShiftController;
 use App\Http\Controllers\Api\Mensajero\LocationController;
 use App\Http\Controllers\Api\Admin\CourierController;
 use App\Http\Controllers\Api\DeviceTokenController;
+use App\Http\Controllers\Api\Mensajero\ReportController as MensajeroReportController;
+use App\Http\Controllers\Api\Admin\ReportController as AdminReportController;
 
 Route::prefix('auth')->group(function () {
     Route::post('register', [AuthController::class, 'registerCliente']);
@@ -46,6 +48,8 @@ Route::middleware(['auth:sanctum', 'role:mensajero'])->prefix('mensajero')->grou
     Route::post('shifts/end', [ShiftController::class, 'end']);
 
     Route::post('locations', [LocationController::class, 'store']);
+
+    Route::get('reports/monthly', [MensajeroReportController::class, 'monthly']);
 });
 
 Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(function () {
@@ -56,4 +60,7 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(functi
     Route::get('couriers/on-duty', [CourierController::class, 'onDuty']);
     Route::get('couriers/{courier}/shifts', [CourierController::class, 'shifts']);
     Route::get('shifts/{shift}/locations', [CourierController::class, 'shiftLocations']);
+
+    Route::get('reports/orders', [AdminReportController::class, 'orders']);
+    Route::get('reports/couriers-summary', [AdminReportController::class, 'couriersSummary']);
 });
