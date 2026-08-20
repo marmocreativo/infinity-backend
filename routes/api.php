@@ -15,6 +15,11 @@ use App\Http\Controllers\Api\Admin\CourierManagementController;
 use App\Http\Controllers\Api\Admin\ClinicManagementController;
 use App\Http\Controllers\Api\Cliente\PaymentController;
 use App\Http\Controllers\Api\Admin\AssignmentSettingController;
+use App\Http\Controllers\Api\PasswordController;
+use App\Http\Controllers\Api\Cliente\ProfileController;
+use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Http\Request;
+
 
 Route::prefix('auth')->group(function () {
     Route::post('register', [AuthController::class, 'registerCliente']);
@@ -30,6 +35,10 @@ Route::prefix('auth')->group(function () {
 Route::middleware('auth:sanctum')->group(function () {
     Route::post('device-tokens', [DeviceTokenController::class, 'store']);
     Route::delete('device-tokens', [DeviceTokenController::class, 'destroy']);
+    Route::post('broadcasting/auth', function (Request $request) {
+        return Broadcast::auth($request);
+    });
+    Route::put('password', [PasswordController::class, 'update']);
 });
 
 // --- Rutas por rol (protegidas) ---
@@ -40,6 +49,8 @@ Route::middleware(['auth:sanctum', 'role:cliente'])->prefix('cliente')->group(fu
 
     Route::get('orders/{order}/payment', [PaymentController::class, 'show']);
     Route::post('orders/{order}/pay', [PaymentController::class, 'pay']);
+
+    Route::put('profile', [ProfileController::class, 'update']);
 });
 
 Route::middleware(['auth:sanctum', 'role:mensajero'])->prefix('mensajero')->group(function () {
