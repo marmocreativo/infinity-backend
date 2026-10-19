@@ -16,6 +16,7 @@ class User extends Authenticatable
         'email',
         'password',
         'phone',
+        'photo_path',
         'status',
         'must_change_password',
     ];
@@ -23,7 +24,10 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        'photo_path',
     ];
+
+    protected $appends = ['photo_url'];
 
     protected function casts(): array
     {
@@ -32,6 +36,11 @@ class User extends Authenticatable
             'password' => 'hashed',
             'must_change_password' => 'boolean',
         ];
+    }
+
+    public function getPhotoUrlAttribute(): ?string
+    {
+        return $this->photo_path ? asset('storage/' . $this->photo_path) : null;
     }
 
     public function clinic()
@@ -53,6 +62,7 @@ class User extends Authenticatable
     {
         return $this->hasMany(CourierShift::class, 'courier_id');
     }
+
     public function deviceTokens()
     {
         return $this->hasMany(DeviceToken::class);

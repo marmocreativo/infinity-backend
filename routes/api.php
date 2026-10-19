@@ -17,6 +17,7 @@ use App\Http\Controllers\Api\Cliente\PaymentController;
 use App\Http\Controllers\Api\Admin\AssignmentSettingController;
 use App\Http\Controllers\Api\PasswordController;
 use App\Http\Controllers\Api\Cliente\ProfileController;
+use App\Http\Controllers\Api\Mensajero\ProfileController as MensajeroProfileController;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Http\Request;
 
@@ -44,6 +45,7 @@ Route::middleware('auth:sanctum')->group(function () {
 // --- Rutas por rol (protegidas) ---
 Route::middleware(['auth:sanctum', 'role:cliente'])->prefix('cliente')->group(function () {
     Route::get('orders', [ClienteOrderController::class, 'index']);
+    Route::post('orders/quote', [ClienteOrderController::class, 'quote']);
     Route::post('orders', [ClienteOrderController::class, 'store']);
     Route::get('orders/{order}', [ClienteOrderController::class, 'show']);
 
@@ -64,6 +66,10 @@ Route::middleware(['auth:sanctum', 'role:mensajero'])->prefix('mensajero')->grou
     Route::get('shifts/current', [ShiftController::class, 'current']);
     Route::post('shifts/start', [ShiftController::class, 'start']);
     Route::post('shifts/end', [ShiftController::class, 'end']);
+
+    Route::get('profile', [MensajeroProfileController::class, 'show']);
+    // POST (no PUT) porque lleva archivo multipart
+    Route::post('profile', [MensajeroProfileController::class, 'update']);
 
     Route::post('locations', [LocationController::class, 'store']);
 

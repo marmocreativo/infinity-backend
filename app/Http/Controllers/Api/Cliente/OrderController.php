@@ -11,12 +11,15 @@ use Illuminate\Http\Request;
 use App\Services\PushNotificationService;
 use App\Models\Payment;
 use App\Services\OrderAssignmentService;
+use App\Services\RouteQuoteService;
 
 class OrderController extends Controller
 {
     public function index(Request $request)
     {
         $orders = $request->user()->clinic->orders()
+            ->with(['clinic', 'events'])
+            ->with(['clinic', 'events', 'courier'])
             ->latest()
             ->paginate(15);
 
@@ -30,12 +33,40 @@ class OrderController extends Controller
         return new OrderResource($order->load(['courier', 'evidences', 'events']));
     }
 
-    public function store(StoreOrderRequest $request, PushNotificationService $push, OrderAssignmentService $assignmentService)
+    public function quote(Request $request, RouteQuoteService $quoteService)
+    {
+        $data = $request->validate([
+            'pickup_lat' => ['required', 'numeric', 'between:-90,90'],
+            'pickup_lng' => ['required', 'numeric', 'between:-180,180'],
+            'delivery_lat' => ['required', 'numeric', 'between:-90,90'],
+            'delivery_lng' => ['required', 'numeric', 'between:-180,180'],
+        ]);
+
+        return response()->json([
+            'data' => $quoteService->quote(
+                (float) $data['pickup_lat'],
+                (float) $data['pickup_lng'],
+                (float) $data['delivery_lat'],
+                (float) $data['delivery_lng'],
+            ),
+        ]);
+    }
+
+    public function store(StoreOrderRequest $request, PushNotificationService $push, OrderAssignmentService $assignmentService, RouteQuoteService $quoteService)
     {
         $clinic = $request->user()->clinic;
 
+        // El precio siempre se calcula en el servidor
+        $quote = $quoteService->quote(
+            (float) $request->pickup_lat,
+            (float) $request->pickup_lng,
+            (float) $request->delivery_lat,
+            (float) $request->delivery_lng,
+        );
+
         $order = Order::create([
             ...$request->validated(),
+            'price' => $quote['price'],
             'clinic_id' => $clinic->id,
             'status' => 'pending',
             'assignment_type' => 'manual',

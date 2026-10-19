@@ -20,6 +20,7 @@ class OrderResource extends JsonResource
             'courier' => $this->when($this->courier, fn () => [
                 'id' => $this->courier->id,
                 'name' => $this->courier->name,
+                'photo_url' => $this->courier->photo_url,
             ]),
             'pickup' => [
                 'address' => $this->pickup_address,
