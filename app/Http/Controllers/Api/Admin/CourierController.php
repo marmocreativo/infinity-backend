@@ -21,6 +21,7 @@ class CourierController extends Controller
                 return [
                     'id' => $courier->id,
                     'name' => $courier->name,
+                    'photo_url' => $courier->photo_url,
                     'shift_id' => $shift?->id,
                     'started_at' => $shift?->started_at,
                     'last_location' => $lastLocation ? [

@@ -2,6 +2,7 @@
 
 namespace App\Http\Requests\Admin;
 
+use App\Support\ServiceArea;
 use Illuminate\Foundation\Http\FormRequest;
 
 class UpdateClinicRequest extends FormRequest
@@ -22,6 +23,17 @@ class UpdateClinicRequest extends FormRequest
             'business_name' => ['sometimes', 'string', 'max:255'],
             'tax_id' => ['nullable', 'string', 'max:50'],
             'default_address' => ['nullable', 'string'],
+            'default_lat' => ['nullable', 'numeric', 'between:' . ServiceArea::LAT_MIN . ',' . ServiceArea::LAT_MAX],
+            'default_lng' => ['nullable', 'numeric', 'between:' . ServiceArea::LNG_MIN . ',' . ServiceArea::LNG_MAX],
+        ];
+    }
+
+    public function messages(): array
+    {
+        return [
+            'email.unique' => 'Ese correo ya está en uso por otra cuenta.',
+            'default_lat.between' => 'La ubicación de la clínica debe estar dentro de México.',
+            'default_lng.between' => 'La ubicación de la clínica debe estar dentro de México.',
         ];
     }
 }

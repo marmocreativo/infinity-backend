@@ -21,23 +21,12 @@ class RouteQuoteService
         $route = $this->fetchRoute($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
 
         if ($route) {
-            $route['price'] = $this->calculatePrice($route['distance_km']);
             Cache::put($key, $route, now()->addMinutes(30));
 
             return $route;
         }
 
-        $route = $this->fallbackRoute($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
-        $route['price'] = $this->calculatePrice($route['distance_km']);
-
-        return $route;
-    }
-
-    public function calculatePrice(float $distanceKm): float
-    {
-        $price = config('pricing.base_fee') + (config('pricing.per_km') * $distanceKm);
-
-        return (float) ceil(max(config('pricing.minimum'), $price));
+        return $this->fallbackRoute($pickupLat, $pickupLng, $deliveryLat, $deliveryLng);
     }
 
     private function fetchRoute(float $pLat, float $pLng, float $dLat, float $dLng): ?array

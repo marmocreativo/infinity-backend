@@ -22,4 +22,11 @@ class UpdateCourierRequest extends FormRequest
             'vehicle_type' => ['sometimes', 'in:motorcycle,car,bike'],
         ];
     }
+
+    public function messages(): array
+    {
+        return [
+            'email.unique' => 'Ese correo ya está en uso por otra cuenta.',
+        ];
+    }
 }

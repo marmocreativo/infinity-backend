@@ -18,7 +18,9 @@ class ClinicManagementController extends Controller
     public function update(UpdateClinicRequest $request, Clinic $clinic)
     {
         $clinic->user->update($request->only(['name', 'email', 'phone']));
-        $clinic->update($request->only(['business_name', 'tax_id', 'default_address']));
+        $clinic->update($request->only([
+            'business_name', 'tax_id', 'default_address', 'default_lat', 'default_lng',
+        ]));
 
         return response()->json($clinic->load('user'));
     }

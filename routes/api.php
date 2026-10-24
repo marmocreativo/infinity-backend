@@ -45,7 +45,9 @@ Route::middleware('auth:sanctum')->group(function () {
 // --- Rutas por rol (protegidas) ---
 Route::middleware(['auth:sanctum', 'role:cliente'])->prefix('cliente')->group(function () {
     Route::get('orders', [ClienteOrderController::class, 'index']);
+    Route::get('service-status', [ClienteOrderController::class, 'serviceStatus']);
     Route::post('orders/quote', [ClienteOrderController::class, 'quote']);
+    Route::post('orders/{order}/cancel', [ClienteOrderController::class, 'cancel']);
     Route::post('orders', [ClienteOrderController::class, 'store']);
     Route::get('orders/{order}', [ClienteOrderController::class, 'show']);
 
@@ -62,6 +64,7 @@ Route::middleware(['auth:sanctum', 'role:mensajero'])->prefix('mensajero')->grou
     Route::post('orders/{order}/confirm-pickup', [MensajeroOrderController::class, 'confirmPickup']);
     Route::post('orders/{order}/start-delivery', [MensajeroOrderController::class, 'startDelivery']);
     Route::post('orders/{order}/confirm-delivery', [MensajeroOrderController::class, 'confirmDelivery']);
+    Route::post('orders/{order}/report-problem', [MensajeroOrderController::class, 'reportProblem']);
 
     Route::get('shifts/current', [ShiftController::class, 'current']);
     Route::post('shifts/start', [ShiftController::class, 'start']);

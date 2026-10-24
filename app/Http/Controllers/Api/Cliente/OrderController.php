@@ -7,18 +7,21 @@ use App\Http\Requests\Order\StoreOrderRequest;
 use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Models\OrderEvent;
-use Illuminate\Http\Request;
-use App\Services\PushNotificationService;
 use App\Models\Payment;
 use App\Services\OrderAssignmentService;
+use App\Services\OrderBillingService;
+use App\Services\PushNotificationService;
 use App\Services\RouteQuoteService;
+use App\Services\ServiceAvailabilityService;
+use App\Support\ServiceArea;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class OrderController extends Controller
 {
     public function index(Request $request)
     {
         $orders = $request->user()->clinic->orders()
-            ->with(['clinic', 'events'])
             ->with(['clinic', 'events', 'courier'])
             ->latest()
             ->paginate(15);
@@ -33,43 +36,71 @@ class OrderController extends Controller
         return new OrderResource($order->load(['courier', 'evidences', 'events']));
     }
 
-    public function quote(Request $request, RouteQuoteService $quoteService)
+    /** Horario, repartidores en turno y tarifas vigentes */
+    public function serviceStatus(ServiceAvailabilityService $availability)
+    {
+        return response()->json($availability->status());
+    }
+
+    public function quote(Request $request, RouteQuoteService $quoteService, OrderBillingService $billing)
     {
         $data = $request->validate([
-            'pickup_lat' => ['required', 'numeric', 'between:-90,90'],
-            'pickup_lng' => ['required', 'numeric', 'between:-180,180'],
-            'delivery_lat' => ['required', 'numeric', 'between:-90,90'],
-            'delivery_lng' => ['required', 'numeric', 'between:-180,180'],
+            'pickup_lat' => ServiceArea::latRules(),
+            'pickup_lng' => ServiceArea::lngRules(),
+            'delivery_lat' => ServiceArea::latRules(),
+            'delivery_lng' => ServiceArea::lngRules(),
         ]);
 
+        $route = $quoteService->quote(
+            (float) $data['pickup_lat'],
+            (float) $data['pickup_lng'],
+            (float) $data['delivery_lat'],
+            (float) $data['delivery_lng'],
+        );
+
+        // El front suma el cargo urgente si el cliente lo activa
+        $prices = $billing->breakdown($route['distance_km'], false);
+
         return response()->json([
-            'data' => $quoteService->quote(
-                (float) $data['pickup_lat'],
-                (float) $data['pickup_lng'],
-                (float) $data['delivery_lat'],
-                (float) $data['delivery_lng'],
-            ),
+            'data' => array_merge($route, [
+                'route_price' => $prices['route_price'],
+                'urgent_surcharge' => (float) config('service_rules.urgent_surcharge'),
+            ]),
         ]);
     }
 
-    public function store(StoreOrderRequest $request, PushNotificationService $push, OrderAssignmentService $assignmentService, RouteQuoteService $quoteService)
-    {
-        $clinic = $request->user()->clinic;
+    public function store(
+        StoreOrderRequest $request,
+        PushNotificationService $push,
+        OrderAssignmentService $assignmentService,
+        RouteQuoteService $quoteService,
+        OrderBillingService $billing,
+        ServiceAvailabilityService $availability
+    ) {
+        $status = $availability->status();
+        abort_unless($status['can_order'], 422, $status['message']);
 
-        // El precio siempre se calcula en el servidor
-        $quote = $quoteService->quote(
+        $clinic = $request->user()->clinic;
+        $urgent = $request->boolean('is_urgent');
+
+        $route = $quoteService->quote(
             (float) $request->pickup_lat,
             (float) $request->pickup_lng,
             (float) $request->delivery_lat,
             (float) $request->delivery_lng,
         );
+        $prices = $billing->breakdown($route['distance_km'], $urgent);
 
         $order = Order::create([
             ...$request->validated(),
-            'price' => $quote['price'],
             'clinic_id' => $clinic->id,
             'status' => 'pending',
             'assignment_type' => 'manual',
+            'distance_km' => $route['distance_km'],
+            'is_urgent' => $urgent,
+            'urgent_surcharge' => $prices['urgent_surcharge'],
+            'quoted_price' => $prices['total'],
+            'price' => $prices['total'],
         ]);
 
         $order->refresh();
@@ -103,12 +134,58 @@ class OrderController extends Controller
                 'type' => 'order_assigned',
             ]);
         } else {
-            $push->sendToRole('admin', 'Nuevo pedido', "La clínica {$clinic->business_name} creó un pedido nuevo.", [
+            $title = $urgent ? 'Nuevo pedido URGENTE' : 'Nuevo pedido';
+
+            $push->sendToRole('admin', $title, "La clínica {$clinic->business_name} creó un pedido nuevo.", [
                 'order_id' => (string) $order->id,
                 'type' => 'order_created',
             ]);
         }
 
         return new OrderResource($order);
+    }
+
+    public function cancel(
+        Request $request,
+        Order $order,
+        OrderBillingService $billing,
+        PushNotificationService $push
+    ) {
+        abort_if($order->clinic_id !== $request->user()->clinic->id, 403);
+
+        abort_unless(
+            in_array($order->status, ['pending', 'assigned', 'en_route_pickup'], true),
+            422,
+            'Este pedido ya no se puede cancelar porque la muestra ya fue recolectada.'
+        );
+
+        $courier = $order->courier;
+
+        DB::transaction(function () use ($order, $billing, $request) {
+            // Primero el cobro (depende del estado actual) y luego el cambio de estado
+            $billing->cancel($order);
+
+            $order->update(['status' => 'cancelled']);
+
+            OrderEvent::create([
+                'order_id' => $order->id,
+                'event_type' => 'cancelled',
+                'created_by' => $request->user()->id,
+            ]);
+        });
+
+        if ($courier) {
+            $push->sendToUser($courier, 'Pedido cancelado', "El pedido #{$order->id} fue cancelado por la clínica.", [
+                'order_id' => (string) $order->id,
+                'type' => 'order_cancelled',
+            ]);
+        }
+
+        $push->sendToRole('admin', 'Pedido cancelado', "La clínica canceló el pedido #{$order->id}.", [
+            'order_id' => (string) $order->id,
+            'type' => 'order_cancelled',
+        ]);
+
+        return new OrderResource($order->fresh(['clinic', 'courier', 'evidences', 'events']));
     }
 }

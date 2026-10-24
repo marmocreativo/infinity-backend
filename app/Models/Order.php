@@ -13,7 +13,18 @@ class Order extends Model
         'delivery_address', 'delivery_lat', 'delivery_lng',
         'delivery_contact_name', 'delivery_contact_phone',
         'price', 'payment_status', 'notes',
+        'distance_km', 'is_urgent', 'urgent_surcharge', 'urgent_deadline_at',
+        'quoted_price', 'amount_paid', 'refunded_amount',
+        'cancellation_fee', 'return_surcharge', 'return_reason',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'is_urgent' => 'boolean',
+            'urgent_deadline_at' => 'datetime',
+        ];
+    }
 
     public function clinic()
     {

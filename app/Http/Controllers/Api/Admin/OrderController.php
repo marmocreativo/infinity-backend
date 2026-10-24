@@ -17,14 +17,16 @@ class OrderController extends Controller
         $query = Order::with(['clinic', 'courier'])->latest();
 
         if ($request->filled('status')) {
-            $query->where('status', $request->status);
+            $query->whereIn('status', explode(',', $request->status));
         }
 
         if ($request->filled('courier_id')) {
             $query->where('courier_id', $request->courier_id);
         }
 
-        return OrderResource::collection($query->paginate(20));
+        return OrderResource::collection(
+            $query->paginate(min((int) $request->input('per_page', 20), 100))
+        );
     }
 
     public function show(Order $order)

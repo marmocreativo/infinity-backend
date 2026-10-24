@@ -20,18 +20,24 @@ class PaymentController extends Controller
     {
         abort_if($order->clinic_id !== $request->user()->clinic->id, 403);
 
-        abort_if($order->payment_status === 'paid', 422, 'Este pedido ya fue pagado.');
+        $due = round((float) $order->price - (float) $order->amount_paid, 2);
+
+        abort_if($due <= 0, 422, 'Este pedido no tiene saldo pendiente.');
 
         $payment = $order->payment;
 
         // Simulación: en producción esto vendría de un webhook real de Stripe
+        $order->update([
+            'amount_paid' => $order->price,
+            'payment_status' => 'paid',
+        ]);
+
         $payment->update([
+            'amount' => $order->price,
             'status' => 'paid',
             'gateway_reference' => 'sim_' . Str::random(20),
             'paid_at' => now(),
         ]);
-
-        $order->update(['payment_status' => 'paid']);
 
         return response()->json([
             'message' => 'Pago simulado exitosamente.',

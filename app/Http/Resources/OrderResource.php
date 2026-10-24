@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources;
 
+use App\Services\OrderBillingService;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\JsonResource;
 
@@ -9,6 +10,8 @@ class OrderResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
+        $cancellable = in_array($this->status, ['pending', 'assigned', 'en_route_pickup'], true);
+
         return [
             'id' => $this->id,
             'status' => $this->status,
@@ -39,6 +42,24 @@ class OrderResource extends JsonResource
             'price' => $this->price,
             'payment_status' => $this->payment_status,
             'notes' => $this->notes,
+
+            // Tarifa y reglas de negocio
+            'distance_km' => $this->distance_km,
+            'is_urgent' => (bool) $this->is_urgent,
+            'urgent_surcharge' => $this->urgent_surcharge,
+            'urgent_deadline_at' => $this->urgent_deadline_at,
+            'quoted_price' => $this->quoted_price,
+            'amount_paid' => $this->amount_paid,
+            'amount_due' => max(0, round((float) $this->price - (float) $this->amount_paid, 2)),
+            'refunded_amount' => $this->refunded_amount,
+            'cancellation_fee' => $this->cancellation_fee,
+            'return_surcharge' => $this->return_surcharge,
+            'return_reason' => $this->return_reason,
+            'can_cancel' => $cancellable,
+            'cancel_fee_preview' => $cancellable
+                ? app(OrderBillingService::class)->cancellationFee($this->resource)
+                : null,
+
             'evidences' => $this->whenLoaded('evidences', fn () => $this->evidences->map(fn ($e) => [
                 'type' => $e->type,
                 'photo_url' => asset('storage/' . $e->photo_path),
