@@ -10,7 +10,7 @@ class OrderResource extends JsonResource
 {
     public function toArray(Request $request): array
     {
-        $cancellable = in_array($this->status, ['pending', 'assigned', 'en_route_pickup'], true);
+        $cancellable = in_array($this->status, ['pending', 'assigned', 'en_route_pickup', 'arrived_pickup'], true);
 
         return [
             'id' => $this->id,
@@ -19,6 +19,10 @@ class OrderResource extends JsonResource
             'clinic' => [
                 'id' => $this->clinic->id,
                 'business_name' => $this->clinic->business_name,
+                // Datos de contacto de la clínica (solo cuando se cargó su usuario)
+                'contact_name' => $this->clinic->relationLoaded('user') ? $this->clinic->user?->name : null,
+                'phone' => $this->clinic->relationLoaded('user') ? $this->clinic->user?->phone : null,
+                'email' => $this->clinic->relationLoaded('user') ? $this->clinic->user?->email : null,
             ],
             'courier' => $this->when($this->courier, fn () => [
                 'id' => $this->courier->id,
@@ -41,6 +45,7 @@ class OrderResource extends JsonResource
             ],
             'price' => $this->price,
             'payment_status' => $this->payment_status,
+            'requires_invoice' => (bool) $this->requires_invoice,
             'notes' => $this->notes,
 
             // Tarifa y reglas de negocio
@@ -60,8 +65,20 @@ class OrderResource extends JsonResource
                 ? app(OrderBillingService::class)->cancellationFee($this->resource)
                 : null,
 
+            'stops' => $this->whenLoaded('stops', fn () => $this->stops->map(fn ($s) => [
+                'id' => $s->id,
+                'type' => $s->type,
+                'sequence' => $s->sequence,
+                'address' => $s->address,
+                'lat' => $s->lat,
+                'lng' => $s->lng,
+                'contact_name' => $s->contact_name,
+                'contact_phone' => $s->contact_phone,
+                'completed_at' => $s->completed_at,
+            ])),
             'evidences' => $this->whenLoaded('evidences', fn () => $this->evidences->map(fn ($e) => [
                 'type' => $e->type,
+                'stop_id' => $e->stop_id,
                 'photo_url' => asset('storage/' . $e->photo_path),
                 'taken_at' => $e->taken_at,
             ])),

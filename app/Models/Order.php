@@ -16,12 +16,14 @@ class Order extends Model
         'distance_km', 'is_urgent', 'urgent_surcharge', 'urgent_deadline_at',
         'quoted_price', 'amount_paid', 'refunded_amount',
         'cancellation_fee', 'return_surcharge', 'return_reason',
+        'requires_invoice',
     ];
 
     protected function casts(): array
     {
         return [
             'is_urgent' => 'boolean',
+            'requires_invoice' => 'boolean',
             'urgent_deadline_at' => 'datetime',
         ];
     }
@@ -34,6 +36,11 @@ class Order extends Model
     public function courier()
     {
         return $this->belongsTo(User::class, 'courier_id');
+    }
+
+    public function stops()
+    {
+        return $this->hasMany(OrderStop::class)->orderBy('sequence')->orderBy('id');
     }
 
     public function evidences()

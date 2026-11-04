@@ -22,7 +22,7 @@ class OrderController extends Controller
     public function index(Request $request)
     {
         $orders = $request->user()->clinic->orders()
-            ->with(['clinic', 'events', 'courier'])
+            ->with(['clinic', 'events', 'courier', 'stops'])
             ->latest()
             ->paginate(15);
 
@@ -33,7 +33,7 @@ class OrderController extends Controller
     {
         abort_if($order->clinic_id !== $request->user()->clinic->id, 403);
 
-        return new OrderResource($order->load(['courier', 'evidences', 'events']));
+        return new OrderResource($order->load(['courier', 'evidences', 'events', 'stops']));
     }
 
     /** Horario, repartidores en turno y tarifas vigentes */
@@ -49,13 +49,18 @@ class OrderController extends Controller
             'pickup_lng' => ServiceArea::lngRules(),
             'delivery_lat' => ServiceArea::latRules(),
             'delivery_lng' => ServiceArea::lngRules(),
+            'stops' => ['nullable', 'array', 'max:' . StoreOrderRequest::MAX_STOPS],
+            'stops.*.type' => ['required', 'in:pickup,delivery'],
+            'stops.*.lat' => ServiceArea::latRules(),
+            'stops.*.lng' => ServiceArea::lngRules(),
         ]);
 
-        $route = $quoteService->quote(
+        $route = $quoteService->quoteWithStops(
             (float) $data['pickup_lat'],
             (float) $data['pickup_lng'],
             (float) $data['delivery_lat'],
             (float) $data['delivery_lng'],
+            $data['stops'] ?? [],
         );
 
         // El front suma el cargo urgente si el cliente lo activa
@@ -83,25 +88,45 @@ class OrderController extends Controller
         $clinic = $request->user()->clinic;
         $urgent = $request->boolean('is_urgent');
 
-        $route = $quoteService->quote(
+        $stops = $request->validated('stops') ?? [];
+
+        $route = $quoteService->quoteWithStops(
             (float) $request->pickup_lat,
             (float) $request->pickup_lng,
             (float) $request->delivery_lat,
             (float) $request->delivery_lng,
+            $stops,
         );
         $prices = $billing->breakdown($route['distance_km'], $urgent);
 
-        $order = Order::create([
-            ...$request->validated(),
-            'clinic_id' => $clinic->id,
-            'status' => 'pending',
-            'assignment_type' => 'manual',
-            'distance_km' => $route['distance_km'],
-            'is_urgent' => $urgent,
-            'urgent_surcharge' => $prices['urgent_surcharge'],
-            'quoted_price' => $prices['total'],
-            'price' => $prices['total'],
-        ]);
+        $order = DB::transaction(function () use ($request, $clinic, $route, $urgent, $prices, $stops) {
+            $order = Order::create([
+                ...collect($request->validated())->except('stops')->all(),
+                'clinic_id' => $clinic->id,
+                'status' => 'pending',
+                'assignment_type' => 'manual',
+                'distance_km' => $route['distance_km'],
+                'is_urgent' => $urgent,
+                'requires_invoice' => $request->boolean('requires_invoice'),
+                'urgent_surcharge' => $prices['urgent_surcharge'],
+                'quoted_price' => $prices['total'],
+                'price' => $prices['total'],
+            ]);
+
+            foreach (array_values($stops) as $i => $stop) {
+                $order->stops()->create([
+                    'type' => $stop['type'],
+                    'sequence' => $i + 1,
+                    'address' => $stop['address'],
+                    'lat' => $stop['lat'],
+                    'lng' => $stop['lng'],
+                    'contact_name' => $stop['contact_name'],
+                    'contact_phone' => $stop['contact_phone'],
+                ]);
+            }
+
+            return $order;
+        });
 
         $order->refresh();
 
@@ -142,7 +167,7 @@ class OrderController extends Controller
             ]);
         }
 
-        return new OrderResource($order);
+        return new OrderResource($order->load(['clinic', 'stops']));
     }
 
     public function cancel(
@@ -154,7 +179,7 @@ class OrderController extends Controller
         abort_if($order->clinic_id !== $request->user()->clinic->id, 403);
 
         abort_unless(
-            in_array($order->status, ['pending', 'assigned', 'en_route_pickup'], true),
+            in_array($order->status, ['pending', 'assigned', 'en_route_pickup', 'arrived_pickup'], true),
             422,
             'Este pedido ya no se puede cancelar porque la muestra ya fue recolectada.'
         );
@@ -186,6 +211,6 @@ class OrderController extends Controller
             'type' => 'order_cancelled',
         ]);
 
-        return new OrderResource($order->fresh(['clinic', 'courier', 'evidences', 'events']));
+        return new OrderResource($order->fresh(['clinic', 'courier', 'evidences', 'events', 'stops']));
     }
 }

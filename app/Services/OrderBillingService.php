@@ -26,10 +26,13 @@ class OrderBillingService
         ];
     }
 
-    /** Cargo que se aplicaría hoy si el cliente cancela (0 si aún no está asignado) */
+    /**
+     * Cargo que se aplicaría hoy si el cliente cancela.
+     * Solo se cobra si el mensajero ya llegó al punto de recolección.
+     */
     public function cancellationFee(Order $order): float
     {
-        if ($order->status === 'pending') {
+        if ($order->status !== 'arrived_pickup') {
             return 0.0;
         }
 

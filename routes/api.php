@@ -61,6 +61,7 @@ Route::middleware(['auth:sanctum', 'role:mensajero'])->prefix('mensajero')->grou
     Route::get('orders', [MensajeroOrderController::class, 'index']);
     Route::get('orders/{order}', [MensajeroOrderController::class, 'show']);
     Route::post('orders/{order}/start-pickup', [MensajeroOrderController::class, 'startPickup']);
+    Route::post('orders/{order}/arrive-pickup', [MensajeroOrderController::class, 'arrivePickup']);
     Route::post('orders/{order}/confirm-pickup', [MensajeroOrderController::class, 'confirmPickup']);
     Route::post('orders/{order}/start-delivery', [MensajeroOrderController::class, 'startDelivery']);
     Route::post('orders/{order}/confirm-delivery', [MensajeroOrderController::class, 'confirmDelivery']);

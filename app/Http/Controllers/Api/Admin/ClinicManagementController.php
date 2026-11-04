@@ -8,9 +8,9 @@ use App\Models\Clinic;
 
 class ClinicManagementController extends Controller
 {
-    public function index()
+    public function index(\Illuminate\Http\Request $request)
     {
-        $clinics = Clinic::with('user')->latest()->paginate(20);
+        $clinics = Clinic::with('user')->latest()->paginate(min((int) $request->input('per_page', 20), 200));
 
         return response()->json($clinics);
     }

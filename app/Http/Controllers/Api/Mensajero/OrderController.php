@@ -8,6 +8,7 @@ use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Models\OrderEvent;
 use App\Models\OrderEvidence;
+use App\Models\OrderStop;
 use Illuminate\Http\Request;
 use App\Services\OrderBillingService;
 use App\Services\PushNotificationService;
@@ -16,7 +17,7 @@ class OrderController extends Controller
 {
     public function index(Request $request)
     {
-        $orders = Order::where('courier_id', $request->user()->id)
+        $orders = Order::with(['clinic', 'stops'])->where('courier_id', $request->user()->id)
             ->latest()
             ->paginate(15);
 
@@ -27,7 +28,7 @@ class OrderController extends Controller
     {
         abort_if($order->courier_id !== $request->user()->id, 403);
 
-        return new OrderResource($order->load(['clinic', 'evidences', 'events']));
+        return new OrderResource($order->load(['clinic', 'evidences', 'events', 'stops']));
     }
 
     public function reportProblem(
@@ -101,20 +102,33 @@ class OrderController extends Controller
         return new OrderResource($order);
     }
 
-    public function confirmPickup(UploadEvidenceRequest $request, Order $order, PushNotificationService $push)
+    /** El mensajero llegó al punto de recolección (desde aquí la cancelación genera cargo) */
+    public function arrivePickup(Request $request, Order $order, PushNotificationService $push)
     {
         $this->authorizeCourier($request, $order);
         $this->assertStatus($order, ['en_route_pickup']);
 
-        $path = $request->file('photo')->store('evidences/pickup', 'public');
+        $order->update(['status' => 'arrived_pickup']);
+        $this->logEvent($order, 'arrived_pickup', $request->user()->id);
 
-        OrderEvidence::create([
-            'order_id' => $order->id,
-            'type' => 'pickup',
-            'photo_path' => $path,
-            'taken_by' => $request->user()->id,
-            'taken_at' => now(),
+        $push->sendToUser($order->clinic->user, 'Tu mensajero llegó', "El mensajero llegó al punto de recolección del pedido #{$order->id}.", [
+            'order_id' => (string) $order->id,
+            'type' => 'order_arrived_pickup',
         ]);
+
+        return new OrderResource($order->load(['clinic', 'stops']));
+    }
+
+    public function confirmPickup(UploadEvidenceRequest $request, Order $order, PushNotificationService $push)
+    {
+        $this->authorizeCourier($request, $order);
+        $this->assertStatus($order, ['en_route_pickup', 'arrived_pickup']);
+
+        $stop = $this->resolveStop($request, $order, 'pickup');
+
+        if (! $this->recordStopEvidence($request, $order, $stop, 'pickup')) {
+            return new OrderResource($order->load(['clinic', 'evidences', 'events', 'stops']));
+        }
 
         $order->update([
             'status' => 'picked_up',
@@ -138,15 +152,11 @@ class OrderController extends Controller
         $this->authorizeCourier($request, $order);
         $this->assertStatus($order, ['en_route_delivery']);
 
-        $path = $request->file('photo')->store('evidences/delivery', 'public');
+        $stop = $this->resolveStop($request, $order, 'delivery');
 
-        OrderEvidence::create([
-            'order_id' => $order->id,
-            'type' => 'delivery',
-            'photo_path' => $path,
-            'taken_by' => $request->user()->id,
-            'taken_at' => now(),
-        ]);
+        if (! $this->recordStopEvidence($request, $order, $stop, 'delivery')) {
+            return new OrderResource($order->load(['clinic', 'evidences', 'events', 'stops']));
+        }
 
         $order->update(['status' => 'delivered']);
         $this->logEvent($order, 'delivered', $request->user()->id);
@@ -168,6 +178,54 @@ class OrderController extends Controller
         $this->logEvent($order, 'en_route_delivery', $request->user()->id);
 
         return new OrderResource($order);
+    }
+
+    /** Parada indicada en la petición (null = recolección/entrega principal) */
+    private function resolveStop(UploadEvidenceRequest $request, Order $order, string $type): ?OrderStop
+    {
+        if (! $request->filled('stop_id')) {
+            return null;
+        }
+
+        $stop = $order->stops()->where('type', $type)->find($request->integer('stop_id'));
+
+        abort_unless($stop, 422, 'La parada indicada no pertenece a este pedido.');
+        abort_if($stop->completed_at, 422, 'Esta parada ya fue confirmada.');
+
+        return $stop;
+    }
+
+    /**
+     * Guarda la foto de la parada (o de la principal). Devuelve true si con esto
+     * ya quedaron completas TODAS las paradas de ese tipo y el pedido puede avanzar.
+     */
+    private function recordStopEvidence(UploadEvidenceRequest $request, Order $order, ?OrderStop $stop, string $type): bool
+    {
+        if (! $stop) {
+            abort_if(
+                $order->evidences()->where('type', $type)->whereNull('stop_id')->exists(),
+                422,
+                'La ' . ($type === 'pickup' ? 'recolección' : 'entrega') . ' principal ya fue confirmada.'
+            );
+        }
+
+        $path = $request->file('photo')->store("evidences/{$type}", 'public');
+
+        OrderEvidence::create([
+            'order_id' => $order->id,
+            'stop_id' => $stop?->id,
+            'type' => $type,
+            'photo_path' => $path,
+            'taken_by' => $request->user()->id,
+            'taken_at' => now(),
+        ]);
+
+        $stop?->update(['completed_at' => now()]);
+
+        $mainDone = $order->evidences()->where('type', $type)->whereNull('stop_id')->exists();
+        $stopsPending = $order->stops()->where('type', $type)->whereNull('completed_at')->exists();
+
+        return $mainDone && ! $stopsPending;
     }
 
     private function authorizeCourier(Request $request, Order $order): void

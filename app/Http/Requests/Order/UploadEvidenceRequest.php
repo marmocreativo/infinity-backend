@@ -15,6 +15,8 @@ class UploadEvidenceRequest extends FormRequest
     {
         return [
             'photo' => ['required', 'image', 'max:8192'], // 8MB máx
+            // Si se omite, es la recolección/entrega principal
+            'stop_id' => ['nullable', 'integer'],
         ];
     }
 }

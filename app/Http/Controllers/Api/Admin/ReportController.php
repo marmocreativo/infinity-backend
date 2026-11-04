@@ -12,7 +12,7 @@ class ReportController extends Controller
 {
     public function orders(Request $request)
     {
-        $query = Order::with(['clinic', 'courier'])->latest();
+        $query = Order::with(['clinic.user', 'courier', 'stops'])->latest();
 
         if ($request->filled('status')) {
             $query->where('status', $request->status);
@@ -34,7 +34,7 @@ class ReportController extends Controller
             $query->whereDate('created_at', '<=', $request->to);
         }
 
-        $orders = $query->paginate(30);
+        $orders = $query->paginate(min((int) $request->input('per_page', 30), 100));
 
         return OrderResource::collection($orders);
     }
@@ -45,10 +45,11 @@ class ReportController extends Controller
 
         $summary = User::role('mensajero')
             ->get()
-            ->map(function ($courier) use ($month) {
+            ->map(function ($courier) use ($month, $request) {
                 $delivered = Order::where('courier_id', $courier->id)
                     ->where('status', 'delivered')
                     ->whereRaw("DATE_FORMAT(updated_at, '%Y-%m') = ?", [$month])
+                    ->when($request->filled('clinic_id'), fn ($q) => $q->where('clinic_id', $request->clinic_id))
                     ->count();
 
                 return [

@@ -33,7 +33,9 @@ class OrderAssignmentService
 
     private function findClosestAvailableCourier(float $pickupLat, float $pickupLng): ?User
     {
+        // Solo mensajeros activos: los suspendidos/inactivos nunca reciben pedidos
         $couriers = User::role('mensajero')
+            ->where('status', 'active')
             ->whereHas('courierProfile', fn ($q) => $q->where('is_on_duty', true))
             ->with(['shifts' => fn ($q) => $q->whereNull('ended_at')->latest('started_at')->limit(1)])
             ->get();

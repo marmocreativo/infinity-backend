@@ -8,7 +8,7 @@ class OrderEvidence extends Model
 {
     protected $table = 'order_evidences'; // <-- agregar esta línea
 
-    protected $fillable = ['order_id', 'type', 'photo_path', 'taken_by', 'taken_at'];
+    protected $fillable = ['order_id', 'stop_id', 'type', 'photo_path', 'taken_by', 'taken_at'];
 
     protected function casts(): array
     {

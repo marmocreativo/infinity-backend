@@ -27,7 +27,13 @@ class LocationController extends Controller
             'recorded_at' => $request->recorded_at ?? now(),
         ]);
 
-        broadcast(new CourierLocationUpdated($location))->toOthers();
+        // La ubicación ya quedó guardada; si el servidor de tiempo real
+        // (Reverb) no responde, no debe fallar el registro del mensajero.
+        try {
+            broadcast(new CourierLocationUpdated($location))->toOthers();
+        } catch (\Throwable $e) {
+            report($e);
+        }
 
         return response()->json(['location' => $location], 201);
     }
