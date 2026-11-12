@@ -21,7 +21,9 @@ ini_set('display_errors', 1);
 
 // ── CONFIG: editar por proyecto ────────────────────────────────────────────
 define('TOOL_NAME', 'Deploy Toolkit');           // Nombre mostrado en el header
-define('APP_ROOT',    dirname(__DIR__, 2) . '/sales.dezavoice.com/system'); // Ajusta la ruta al proyecto Laravel
+// Laravel vive en /home/geneti22/enviainfinity.com y el dominio apunta a
+// /home/geneti22/public_html/enviainfinity.com (este archivo).
+define('APP_ROOT',    dirname(__DIR__, 2) . '/enviainfinity.com'); // Ajusta la ruta al proyecto Laravel
 define('PUBLIC_ROOT', __DIR__);
 
 // Subcarpetas del disco "public" que quieras auditar en la sección Storage.
@@ -294,6 +296,54 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $laravel
                 echo "  " . $diskUrl . "/ejemplo.webp\n";
                 break;
 
+            // ── ENLACE PUBLIC/STORAGE (imágenes) ─────────────────────────
+            case 'storage_link':
+                $target = APP_ROOT . '/storage/app/public';
+                $link   = PUBLIC_ROOT . '/storage';
+
+                echo "<strong>Enlace simbólico de imágenes</strong>\n";
+                echo sprintf("  %-12s %s\n", 'enlace:', $link);
+                echo sprintf("  %-12s %s\n", 'destino:', $target);
+
+                if (!is_dir($target)) {
+                    @mkdir($target, 0755, true);
+                }
+                if (!is_dir($target)) {
+                    echo err('No existe ni se pudo crear el destino') . "\n";
+                    break;
+                }
+
+                if (is_link($link)) {
+                    $actual = readlink($link);
+                    if (realpath($actual) === realpath($target)) {
+                        echo ok('El enlace ya existe y apunta bien') . "\n";
+                        break;
+                    }
+                    echo warn("El enlace apunta a otro lado ({$actual}); se reemplaza") . "\n";
+                    unlink($link);
+                } elseif (file_exists($link)) {
+                    echo err('Ya existe una carpeta/archivo "storage" real en el public. Renómbrala o bórrala desde cPanel y repite.') . "\n";
+                    break;
+                }
+
+                if (@symlink($target, $link)) {
+                    echo ok('Enlace creado') . "\n";
+                } else {
+                    echo err('symlink() está bloqueado en este hosting') . "\n";
+                    echo info('Alternativa: en cPanel > Terminal ejecuta:') . "\n";
+                    echo "  ln -s {$target} {$link}\n";
+                }
+
+                echo "\n<strong>Prueba</strong>\n";
+                $probe = $target . '/_probe.txt';
+                file_put_contents($probe, 'ok');
+                echo is_file($link . '/_probe.txt')
+                    ? ok('Archivo visible a través de /storage') . "\n"
+                    : err('No se ve a través del enlace') . "\n";
+                @unlink($probe);
+                echo info('APP_URL en .env debe ser https://enviainfinity.com (sin barra final)') . "\n";
+                break;
+
             // ── VERIFICAR ARCHIVO API.PHP EN SERVIDOR ───────────────────────
             case 'check_api_file':
                 $apiPath = APP_ROOT . '/routes/api.php';
@@ -308,79 +358,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $laravel
                 break;
 
             // ── RUTAS ─────────────────────────────────────────────────────
-            // ── RETELL: CONFIGURACIÓN ─────────────────────────────────────
-            case 'retell':
-                $cfg   = config('services.retell');
-                $key   = (string) config('services.retell.api_key');
-                $agent = (string) config('services.retell.web_test_agent_id');
-
-                echo sprintf("  %-36s %s\n", "bloque 'retell' en services.php", is_array($cfg) ? ok('existe') : err('NO existe: falta en config/services.php'));
-                echo sprintf("  %-36s %s\n", 'api_key (config)', $key !== '' ? ok('configurada, ' . strlen($key) . ' caracteres') : err('vacía'));
-                echo sprintf("  %-36s %s\n", 'web_test_agent_id (config)', $agent !== '' ? ok(substr($agent, 0, 12) . '…') : err('vacío'));
-                echo sprintf("  %-36s %s\n", 'agent_version', config('services.retell.web_test_agent_version') ?: info('sin definir'));
-                echo sprintf("  %-36s %s\n", 'max_minutes', config('services.retell.web_test_max_minutes') ?? info('sin definir'));
-                echo sprintf("  %-36s %s\n", 'APP_URL', config('app.url'));
-                echo sprintf("  %-36s %s\n", 'URL del webhook', rtrim((string) config('app.url'), '/') . '/api/v1/webhooks/retell');
-                echo sprintf("  %-36s %s\n", 'config cacheada', app()->configurationIsCached() ? warn('sí: los cambios del .env no se leen hasta limpiar caché') : ok('no'));
-
-                echo "\n<strong>Archivo .env en el servidor</strong>\n";
-                $envPath = APP_ROOT . '/.env';
-                $envText = is_file($envPath) ? (string) file_get_contents($envPath) : '';
-                echo sprintf("  %-36s %s\n", 'lectura de .env', $envText !== '' ? ok('existe') : err('no se pudo leer ' . $envPath));
-                foreach (['RETELL_API_KEY', 'RETELL_WEB_TEST_AGENT_ID', 'RETELL_WEB_TEST_AGENT_VERSION', 'RETELL_WEB_TEST_MAX_MINUTES'] as $name) {
-                    $found = preg_match('/^\s*' . $name . '\s*=\s*(\S.*)$/m', $envText);
-                    echo sprintf("  %-36s %s\n", $name, $found ? ok('presente en .env') : err('no está en .env'));
-                }
-                break;
-
-            // ── RETELL: PROBAR LLAVE Y AGENTE ─────────────────────────────
-            case 'retell_test':
-                try {
-                    $data = app(App\Services\Retell\RetellApi::class)->createWebCall([
-                        'agent_id' => config('services.retell.web_test_agent_id'),
-                    ]);
-                    echo ok('Retell aceptó la llave y el agente') . "\n";
-                    echo "  call_id: " . ($data['call_id'] ?? '?') . "\n";
-                    echo info('La llamada no se conecta; su token caduca en 30 segundos.') . "\n";
-                } catch (Throwable $e) {
-                    echo err('Retell respondió con error') . "\n  " . $e->getMessage() . "\n";
-                    echo info('401 = llave inválida · 422 = agente inexistente o de otra cuenta') . "\n";
-                }
-                break;
-
-            // ── WEB PUSH: ESTADO ──────────────────────────────────────────
-            case 'webpush':
-                $cfg = config('services.webpush');
-
-                echo sprintf("  %-34s %s\n", 'minishlink/web-push', class_exists(Minishlink\WebPush\WebPush::class) ? ok('instalada') : err('NO instalada: sube vendor/ tras composer require'));
-
-                foreach (['openssl' => true, 'curl' => true, 'mbstring' => true, 'gmp' => false, 'bcmath' => false] as $ext => $required) {
-                    echo sprintf("  %-34s %s\n", "extensión {$ext}", extension_loaded($ext)
-                        ? ok('activa')
-                        : ($required ? err('FALTA') : warn('no activa (opcional, solo rendimiento)')));
-                }
-
-                echo sprintf("  %-34s %s\n", 'VAPID public key', filled($cfg['public_key'] ?? null) ? ok('configurada') : err('vacía'));
-                echo sprintf("  %-34s %s\n", 'VAPID private key', filled($cfg['private_key'] ?? null) ? ok('configurada') : err('vacía'));
-                echo sprintf("  %-34s %s\n", 'VAPID subject', $cfg['subject'] ?? err('sin definir'));
-                echo sprintf("  %-34s %s\n", 'dispositivos registrados', Illuminate\Support\Facades\DB::table('device_tokens')->whereNull('deleted_at')->count());
-                break;
-
-            // ── WEB PUSH: GENERAR CLAVES VAPID ────────────────────────────
-            case 'vapid_generate':
-                if (! class_exists(Minishlink\WebPush\VAPID::class)) {
-                    echo err('La librería minishlink/web-push no está instalada.') . "\n";
-                    break;
-                }
-
-                $keys = Minishlink\WebPush\VAPID::createVapidKeys();
-                echo ok('Claves generadas. Cópialas a tu .env y limpia caché.') . "\n\n";
-                echo "VAPID_PUBLIC_KEY={$keys['publicKey']}\n";
-                echo "VAPID_PRIVATE_KEY={$keys['privateKey']}\n\n";
-                echo warn('Si ya había claves, cambiarlas invalida las suscripciones: cada usuario debe volver a activar sus notificaciones.') . "\n";
-                echo warn('La clave privada quedó en pantalla: elimina el toolkit al terminar.') . "\n";
-                break;
-
             case 'routes':
                 $routes = collect(Illuminate\Support\Facades\Route::getRoutes())
                     ->map(function ($route) {
@@ -576,6 +553,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $laravel
 
         <form class="action-form" method="POST">
     <input type="hidden" name="key" value="<?= htmlspecialchars($_GET['key'] ?? '') ?>">
+            <button type="submit" name="action" value="storage_link">
+                <span class="icon">🖼️</span>
+                <span class="label">Enlazar imágenes</span>
+                <span class="desc">Crea public/storage → storage/app/public</span>
+            </button>
+        </form>
+
+        <form class="action-form" method="POST">
+    <input type="hidden" name="key" value="<?= htmlspecialchars($_GET['key'] ?? '') ?>">
             <button type="submit" name="action" value="routes">
                 <span class="icon">🛣️</span>
                 <span class="label">Rutas</span>
@@ -589,42 +575,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $laravel
                 <span class="icon">📄</span>
                 <span class="label">Ver api.php</span>
                 <span class="desc">Contenido real en servidor</span>
-            </button>
-        </form>
-
-        <form class="action-form" method="POST">
-    <input type="hidden" name="key" value="<?= htmlspecialchars($_GET['key'] ?? '') ?>">
-            <button type="submit" name="action" value="retell">
-                <span class="icon">📞</span>
-                <span class="label">Retell: configuración</span>
-                <span class="desc">Variables, caché y URL del webhook</span>
-            </button>
-        </form>
-
-        <form class="action-form" method="POST">
-    <input type="hidden" name="key" value="<?= htmlspecialchars($_GET['key'] ?? '') ?>">
-            <button type="submit" name="action" value="retell_test">
-                <span class="icon">🔑</span>
-                <span class="label">Retell: probar llave</span>
-                <span class="desc">Crea una llamada de prueba (no se conecta)</span>
-            </button>
-        </form>
-
-        <form class="action-form" method="POST">
-    <input type="hidden" name="key" value="<?= htmlspecialchars($_GET['key'] ?? '') ?>">
-            <button type="submit" name="action" value="webpush">
-                <span class="icon">🔔</span>
-                <span class="label">Web Push: estado</span>
-                <span class="desc">Librería, extensiones y claves VAPID</span>
-            </button>
-        </form>
-
-        <form class="action-form" method="POST" onsubmit="return confirm('Esto genera claves nuevas. ¿Continuar?');">
-    <input type="hidden" name="key" value="<?= htmlspecialchars($_GET['key'] ?? '') ?>">
-            <button type="submit" name="action" value="vapid_generate">
-                <span class="icon">🗝️</span>
-                <span class="label">Web Push: claves VAPID</span>
-                <span class="desc">Genera un par nuevo para el .env</span>
             </button>
         </form>
 

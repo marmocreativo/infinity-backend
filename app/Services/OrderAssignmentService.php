@@ -10,6 +10,11 @@ class OrderAssignmentService
 {
     public function tryAutoAssign(Order $order): bool
     {
+        // Pedidos programados para un día futuro no se asignan todavía
+        if ($order->scheduled_for && $order->scheduled_for->toDateString() > now(config('service_rules.timezone'))->toDateString()) {
+            return false;
+        }
+
         $setting = AssignmentSetting::first();
 
         if (! $setting || $setting->mode !== 'automatic') {

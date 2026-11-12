@@ -23,20 +23,24 @@ class ServiceAvailabilityService
 
         $reason = null;
         $message = null;
+        $scheduledFor = null;
 
         if ($afterCutoff) {
+            // Pasada la hora límite el pedido no se bloquea: se programa para el día siguiente
+            $scheduledFor = $now->copy()->addDay()->toDateString();
             $reason = 'after_cutoff';
-            $message = 'Ya no se reciben pedidos después de las ' . $this->formatTime($cutoffTime)
-                . ', porque no alcanzaría a entregarse a tiempo. Vuelve a intentarlo mañana.';
+            $message = 'Ya pasó la hora límite de las ' . $this->formatTime($cutoffTime)
+                . '. Tu pedido se programará para mañana y se asignará a primera hora.';
         } elseif ($couriersOnDuty === 0) {
             $reason = 'no_couriers';
             $message = 'Por el momento no hay repartidores en turno. Intenta de nuevo en unos minutos.';
         }
 
         return [
-            'can_order' => $reason === null,
+            'can_order' => $reason !== 'no_couriers',
             'reason' => $reason,
             'message' => $message,
+            'scheduled_for' => $scheduledFor,
             'cutoff_time' => $cutoffTime,
             'couriers_on_duty' => $couriersOnDuty,
             'per_km' => (float) config('pricing.per_km'),

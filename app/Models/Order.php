@@ -16,7 +16,7 @@ class Order extends Model
         'distance_km', 'is_urgent', 'urgent_surcharge', 'urgent_deadline_at',
         'quoted_price', 'amount_paid', 'refunded_amount',
         'cancellation_fee', 'return_surcharge', 'return_reason',
-        'requires_invoice',
+        'requires_invoice', 'scheduled_for', 'payment_method', 'sample_type',
     ];
 
     protected function casts(): array
@@ -24,8 +24,18 @@ class Order extends Model
         return [
             'is_urgent' => 'boolean',
             'requires_invoice' => 'boolean',
+            'scheduled_for' => 'date:Y-m-d',
             'urgent_deadline_at' => 'datetime',
         ];
+    }
+
+    /** Pedido OXXO sin pagar y sin operar: espera el depósito antes de asignarse */
+    public function awaitingPayment(): bool
+    {
+        return $this->payment_method === 'oxxo'
+            && $this->payment_status !== 'paid'
+            && $this->status === 'pending'
+            && ! $this->courier_id;
     }
 
     public function clinic()

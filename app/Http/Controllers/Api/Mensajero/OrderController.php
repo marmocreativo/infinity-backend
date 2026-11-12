@@ -11,6 +11,7 @@ use App\Models\OrderEvidence;
 use App\Models\OrderStop;
 use Illuminate\Http\Request;
 use App\Services\OrderBillingService;
+use App\Services\OrderMailService;
 use App\Services\PushNotificationService;
 
 class OrderController extends Controller
@@ -161,10 +162,18 @@ class OrderController extends Controller
         $order->update(['status' => 'delivered']);
         $this->logEvent($order, 'delivered', $request->user()->id);
 
+        // Pago en efectivo: el mensajero lo cobra al entregar
+        if ($order->payment_method === 'cash' && $order->payment_status !== 'paid') {
+            $order->update(['amount_paid' => $order->price, 'payment_status' => 'paid']);
+            $order->payment?->update(['amount' => $order->price, 'status' => 'paid', 'paid_at' => now()]);
+        }
+
         $push->sendToUser($order->clinic->user, 'Pedido entregado', "Tu pedido #{$order->id} fue entregado en destino.", [
             'order_id' => (string) $order->id,
             'type' => 'order_delivered',
         ]);
+
+        app(OrderMailService::class)->delivered($order);
 
         return new OrderResource($order->load('evidences'));
     }

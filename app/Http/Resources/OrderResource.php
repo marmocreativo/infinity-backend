@@ -45,7 +45,16 @@ class OrderResource extends JsonResource
             ],
             'price' => $this->price,
             'payment_status' => $this->payment_status,
+            'payment_method' => $this->payment_method,
+            'awaiting_payment' => $this->awaitingPayment(),
+            // Ficha de pago OXXO (referencia simulada hasta integrar la pasarela real)
+            'payment_reference' => $this->when(
+                $this->payment_method === 'oxxo' && $this->payment_status !== 'paid',
+                fn () => $this->payment?->gateway_reference
+            ),
             'requires_invoice' => (bool) $this->requires_invoice,
+            'scheduled_for' => $this->scheduled_for?->toDateString(),
+            'sample_type' => $this->sample_type,
             'notes' => $this->notes,
 
             // Tarifa y reglas de negocio
@@ -55,7 +64,10 @@ class OrderResource extends JsonResource
             'urgent_deadline_at' => $this->urgent_deadline_at,
             'quoted_price' => $this->quoted_price,
             'amount_paid' => $this->amount_paid,
-            'amount_due' => max(0, round((float) $this->price - (float) $this->amount_paid, 2)),
+            // A crédito no se cobra al momento: se factura a fin de mes
+            'amount_due' => $this->payment_method === 'credit'
+                ? 0
+                : max(0, round((float) $this->price - (float) $this->amount_paid, 2)),
             'refunded_amount' => $this->refunded_amount,
             'cancellation_fee' => $this->cancellation_fee,
             'return_surcharge' => $this->return_surcharge,

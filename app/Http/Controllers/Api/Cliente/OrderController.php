@@ -8,8 +8,12 @@ use App\Http\Resources\OrderResource;
 use App\Models\Order;
 use App\Models\OrderEvent;
 use App\Models\Payment;
+use App\Services\CreditService;
+use App\Services\RedZoneService;
+use App\Services\OrderDispatchService;
 use App\Services\OrderAssignmentService;
 use App\Services\OrderBillingService;
+use App\Services\OrderMailService;
 use App\Services\PushNotificationService;
 use App\Services\RouteQuoteService;
 use App\Services\ServiceAvailabilityService;
@@ -37,12 +41,59 @@ class OrderController extends Controller
     }
 
     /** Horario, repartidores en turno y tarifas vigentes */
-    public function serviceStatus(ServiceAvailabilityService $availability)
+    public function serviceStatus(Request $request, ServiceAvailabilityService $availability, CreditService $credit, RedZoneService $redZones)
     {
-        return response()->json($availability->status());
+        $status = $availability->status();
+        $clinic = $request->user()->clinic;
+        $summary = $credit->summary($clinic);
+
+        $status['credit_enabled'] = (bool) $clinic->credit_enabled;
+        $status['credit_debt'] = $summary['debt'];
+
+        // Con deuda de Crédito Infinity vencida no se pueden crear pedidos
+        if ($summary['blocked']) {
+            $status['can_order'] = false;
+            $status['reason'] = 'debt';
+            $status['message'] = 'Tienes un adeudo de Crédito Infinity de ' . number_format($summary['debt'], 2)
+                . ' MXN. Cúbrelo para volver a hacer pedidos (revisa la sección Facturación).';
+        }
+
+        // Ubicación de la clínica dentro de una zona roja
+        if ($message = $redZones->clinicBlockedMessage($clinic)) {
+            $status['can_order'] = false;
+            $status['reason'] = 'red_zone';
+            $status['message'] = $message;
+        }
+
+        return response()->json($status);
     }
 
-    public function quote(Request $request, RouteQuoteService $quoteService, OrderBillingService $billing)
+    /** Valida la recolección contra las zonas rojas (se llama al terminar el paso 1) */
+    public function checkPickup(Request $request, RedZoneService $redZones)
+    {
+        $data = $request->validate([
+            'pickup_lat' => ServiceArea::latRules(),
+            'pickup_lng' => ServiceArea::lngRules(),
+            'stops' => ['nullable', 'array', 'max:' . StoreOrderRequest::MAX_STOPS],
+            'stops.*.type' => ['required', 'in:pickup,delivery'],
+            'stops.*.lat' => ServiceArea::latRules(),
+            'stops.*.lng' => ServiceArea::lngRules(),
+        ]);
+
+        $points = [[$data['pickup_lat'], $data['pickup_lng']]];
+        foreach ($data['stops'] ?? [] as $stop) {
+            if ($stop['type'] === 'pickup') {
+                $points[] = [$stop['lat'], $stop['lng']];
+            }
+        }
+
+        $blocked = $redZones->blockedMessage($request->user()->clinic, $points);
+        abort_if($blocked !== null, 422, $blocked);
+
+        return response()->json(['ok' => true]);
+    }
+
+    public function quote(Request $request, RouteQuoteService $quoteService, OrderBillingService $billing, RedZoneService $redZones)
     {
         $data = $request->validate([
             'pickup_lat' => ServiceArea::latRules(),
@@ -54,6 +105,15 @@ class OrderController extends Controller
             'stops.*.lat' => ServiceArea::latRules(),
             'stops.*.lng' => ServiceArea::lngRules(),
         ]);
+
+        $pickupPoints = [[$data['pickup_lat'], $data['pickup_lng']]];
+        foreach ($data['stops'] ?? [] as $stop) {
+            if ($stop['type'] === 'pickup') {
+                $pickupPoints[] = [$stop['lat'], $stop['lng']];
+            }
+        }
+        $blocked = $redZones->blockedMessage($request->user()->clinic, $pickupPoints);
+        abort_if($blocked !== null, 422, $blocked);
 
         $route = $quoteService->quoteWithStops(
             (float) $data['pickup_lat'],
@@ -80,12 +140,32 @@ class OrderController extends Controller
         OrderAssignmentService $assignmentService,
         RouteQuoteService $quoteService,
         OrderBillingService $billing,
-        ServiceAvailabilityService $availability
+        ServiceAvailabilityService $availability,
+        CreditService $credit,
+        OrderDispatchService $dispatcher,
+        RedZoneService $redZones
     ) {
         $status = $availability->status();
         abort_unless($status['can_order'], 422, $status['message']);
 
         $clinic = $request->user()->clinic;
+
+        // Zonas rojas: recolecciones y ubicación de la clínica
+        $pickupPoints = [[$request->pickup_lat, $request->pickup_lng], [$clinic->default_lat, $clinic->default_lng]];
+        foreach ($request->validated('stops') ?? [] as $stop) {
+            if ($stop['type'] === 'pickup') {
+                $pickupPoints[] = [$stop['lat'], $stop['lng']];
+            }
+        }
+        $blocked = $redZones->blockedMessage($clinic, $pickupPoints);
+        abort_if($blocked !== null, 422, $blocked);
+
+        $method = $request->input('payment_method', 'card');
+        abort_unless(in_array($method, ['card', 'oxxo', 'cash', 'credit'], true), 422, 'Método de pago no válido.');
+
+        $debt = $credit->debt($clinic);
+        abort_if($debt > 0, 422, 'Tienes un adeudo de Crédito Infinity de ' . number_format($debt, 2) . ' MXN. Cúbrelo para crear pedidos nuevos.');
+        abort_if($method === 'credit' && ! $clinic->credit_enabled, 422, 'Tu clínica no tiene activo el Crédito Infinity.');
         $urgent = $request->boolean('is_urgent');
 
         $stops = $request->validated('stops') ?? [];
@@ -99,12 +179,16 @@ class OrderController extends Controller
         );
         $prices = $billing->breakdown($route['distance_km'], $urgent);
 
-        $order = DB::transaction(function () use ($request, $clinic, $route, $urgent, $prices, $stops) {
+        $scheduledFor = $status['scheduled_for'] ?? null;
+
+        $order = DB::transaction(function () use ($request, $clinic, $route, $urgent, $prices, $stops, $scheduledFor, $method) {
             $order = Order::create([
                 ...collect($request->validated())->except('stops')->all(),
                 'clinic_id' => $clinic->id,
                 'status' => 'pending',
                 'assignment_type' => 'manual',
+                'scheduled_for' => $scheduledFor,
+                'payment_method' => $method,
                 'distance_km' => $route['distance_km'],
                 'is_urgent' => $urgent,
                 'requires_invoice' => $request->boolean('requires_invoice'),
@@ -133,7 +217,7 @@ class OrderController extends Controller
         Payment::create([
             'order_id' => $order->id,
             'amount' => $order->price,
-            'gateway' => 'stripe',
+            'gateway' => $method === 'credit' ? 'credit' : ($method === 'card' ? 'stripe' : $method),
             'status' => 'pending',
         ]);
 
@@ -143,28 +227,27 @@ class OrderController extends Controller
             'created_by' => $request->user()->id,
         ]);
 
-        $wasAutoAssigned = $assignmentService->tryAutoAssign($order);
+        // El cobro se hace al confirmar el pedido
+        $payment = $order->payment;
 
-        if ($wasAutoAssigned) {
-            $order->refresh();
-
-            OrderEvent::create([
-                'order_id' => $order->id,
-                'event_type' => 'assigned',
-                'created_by' => null, // asignación automática, sin usuario humano
+        if ($method === 'card') {
+            // Simulación: aquí iría el cargo real a la pasarela (los datos de tarjeta nunca llegan al servidor)
+            $order->update(['amount_paid' => $order->price, 'payment_status' => 'paid']);
+            $payment->update([
+                'status' => 'paid',
+                'gateway_reference' => 'sim_' . \Illuminate\Support\Str::random(20),
+                'paid_at' => now(),
             ]);
-
-            $push->sendToUser($order->courier, 'Pedido nuevo asignado', "Se te asignó automáticamente el pedido #{$order->id}.", [
-                'order_id' => (string) $order->id,
-                'type' => 'order_assigned',
+        } elseif ($method === 'oxxo') {
+            $payment->update([
+                'gateway' => 'oxxo',
+                'gateway_reference' => (string) random_int(10000000, 99999999) . (string) random_int(100000, 999999),
             ]);
-        } else {
-            $title = $urgent ? 'Nuevo pedido URGENTE' : 'Nuevo pedido';
+        }
 
-            $push->sendToRole('admin', $title, "La clínica {$clinic->business_name} creó un pedido nuevo.", [
-                'order_id' => (string) $order->id,
-                'type' => 'order_created',
-            ]);
+        // OXXO: el pedido espera el depósito; se asigna y se avisa cuando se confirme el pago
+        if (! $order->fresh()->awaitingPayment()) {
+            $dispatcher->dispatch($order->fresh());
         }
 
         return new OrderResource($order->load(['clinic', 'stops']));

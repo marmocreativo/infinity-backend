@@ -14,17 +14,28 @@ use App\Http\Controllers\Api\Admin\ReportController as AdminReportController;
 use App\Http\Controllers\Api\Admin\CourierManagementController;
 use App\Http\Controllers\Api\Admin\ClinicManagementController;
 use App\Http\Controllers\Api\Cliente\PaymentController;
+use App\Http\Controllers\Api\Cliente\BillingController;
+use App\Http\Controllers\Api\Admin\CreditController;
+use App\Http\Controllers\Api\Admin\RedZoneController;
 use App\Http\Controllers\Api\Admin\AssignmentSettingController;
 use App\Http\Controllers\Api\PasswordController;
+use App\Http\Controllers\Api\PasswordResetController;
+use App\Http\Controllers\Api\Admin\ImpersonationController;
 use App\Http\Controllers\Api\Cliente\ProfileController;
 use App\Http\Controllers\Api\Mensajero\ProfileController as MensajeroProfileController;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Http\Request;
 
 
+// Versión vigente de las apps frontend (para avisar de actualizaciones)
+Route::get('app-version', [\App\Http\Controllers\Api\AppVersionController::class, 'show'])
+    ->middleware('throttle:60,1');
+
 Route::prefix('auth')->group(function () {
     Route::post('register', [AuthController::class, 'registerCliente']);
-    Route::post('login', [AuthController::class, 'login']);
+    Route::post('login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+    Route::post('forgot-password', [PasswordResetController::class, 'forgot'])->middleware('throttle:5,1');
+    Route::post('reset-password', [PasswordResetController::class, 'reset'])->middleware('throttle:10,1');
 
     Route::middleware('auth:sanctum')->group(function () {
         Route::post('logout', [AuthController::class, 'logout']);
@@ -47,6 +58,7 @@ Route::middleware(['auth:sanctum', 'role:cliente'])->prefix('cliente')->group(fu
     Route::get('orders', [ClienteOrderController::class, 'index']);
     Route::get('service-status', [ClienteOrderController::class, 'serviceStatus']);
     Route::post('orders/quote', [ClienteOrderController::class, 'quote']);
+    Route::post('orders/check-pickup', [ClienteOrderController::class, 'checkPickup']);
     Route::post('orders/{order}/cancel', [ClienteOrderController::class, 'cancel']);
     Route::post('orders', [ClienteOrderController::class, 'store']);
     Route::get('orders/{order}', [ClienteOrderController::class, 'show']);
@@ -55,6 +67,9 @@ Route::middleware(['auth:sanctum', 'role:cliente'])->prefix('cliente')->group(fu
     Route::post('orders/{order}/pay', [PaymentController::class, 'pay']);
 
     Route::put('profile', [ProfileController::class, 'update']);
+
+    Route::get('billing', [BillingController::class, 'show']);
+    Route::post('billing/pay', [BillingController::class, 'pay']);
 });
 
 Route::middleware(['auth:sanctum', 'role:mensajero'])->prefix('mensajero')->group(function () {
@@ -84,6 +99,7 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(functi
     Route::get('orders', [AdminOrderController::class, 'index']);
     Route::get('orders/{order}', [AdminOrderController::class, 'show']);
     Route::post('orders/{order}/assign', [AdminOrderController::class, 'assign']);
+    Route::post('orders/{order}/mark-paid', [AdminOrderController::class, 'markPaid']);
 
     Route::get('couriers/on-duty', [CourierController::class, 'onDuty']);
     Route::get('couriers/{courier}/shifts', [CourierController::class, 'shifts']);
@@ -100,6 +116,18 @@ Route::middleware(['auth:sanctum', 'role:admin'])->prefix('admin')->group(functi
     Route::get('users/clinics', [ClinicManagementController::class, 'index']);
     Route::put('users/clinics/{clinic}', [ClinicManagementController::class, 'update']);
     Route::patch('users/clinics/{clinic}/status', [ClinicManagementController::class, 'updateStatus']);
+
+    Route::get('clinics/{clinic}/credit', [CreditController::class, 'show']);
+    Route::patch('clinics/{clinic}/credit', [CreditController::class, 'update']);
+    Route::post('clinics/{clinic}/credit/pay', [CreditController::class, 'pay']);
+    Route::patch('clinics/{clinic}/red-zone-trust', [ClinicManagementController::class, 'updateRedZoneTrust']);
+
+    Route::get('red-zones', [RedZoneController::class, 'index']);
+    Route::post('red-zones', [RedZoneController::class, 'store']);
+    Route::put('red-zones/{redZone}', [RedZoneController::class, 'update']);
+    Route::delete('red-zones/{redZone}', [RedZoneController::class, 'destroy']);
+
+    Route::post('users/{user}/impersonate', [ImpersonationController::class, 'store']);
 
     Route::get('assignment-settings', [AssignmentSettingController::class, 'show']);
     Route::put('assignment-settings', [AssignmentSettingController::class, 'update']);

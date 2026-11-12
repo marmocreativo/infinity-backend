@@ -27,6 +27,9 @@ class StoreOrderRequest extends FormRequest
             'delivery_contact_name' => ['required', 'string', 'max:255'],
             'delivery_contact_phone' => ['required', 'string', 'max:30'],
 
+            // Laminillas, Líquido, Sobre o el texto escrito en "Otro"
+            'sample_type' => ['required', 'string', 'max:120'],
+
             'notes' => ['nullable', 'string'],
             'is_urgent' => ['nullable', 'boolean'],
             'requires_invoice' => ['nullable', 'boolean'],
@@ -51,6 +54,7 @@ class StoreOrderRequest extends FormRequest
             'pickup_lng.between' => 'La ubicación de recolección debe estar dentro de México.',
             'delivery_lat.between' => 'La ubicación de entrega debe estar dentro de México.',
             'delivery_lng.between' => 'La ubicación de entrega debe estar dentro de México.',
+            'sample_type.required' => 'Indica qué envías (tipo de muestra).',
             'pickup_contact_name.required' => 'El nombre de contacto en recolección es obligatorio.',
             'pickup_contact_phone.required' => 'El teléfono de contacto en recolección es obligatorio.',
             'delivery_contact_name.required' => 'El nombre de contacto en entrega es obligatorio.',
