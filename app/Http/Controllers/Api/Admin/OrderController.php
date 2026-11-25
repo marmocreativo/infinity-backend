@@ -83,6 +83,7 @@ class OrderController extends Controller
         ]);
 
         app(OrderMailService::class)->assigned($order);
+        app(OrderDispatchService::class)->notifyClinicAssigned($order);
 
         return new OrderResource($order->load(['clinic.user', 'courier', 'stops']));
     }

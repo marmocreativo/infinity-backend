@@ -140,6 +140,12 @@ class OrderController extends Controller
         ]);
         $this->logEvent($order, 'picked_up', $request->user()->id);
 
+        // Pago en efectivo: el mensajero lo cobra al recolectar
+        if ($order->payment_method === 'cash' && $order->payment_status !== 'paid') {
+            $order->update(['amount_paid' => $order->price, 'payment_status' => 'paid']);
+            $order->payment?->update(['amount' => $order->price, 'status' => 'paid', 'paid_at' => now()]);
+        }
+
         $push->sendToUser($order->clinic->user, 'Muestra recolectada', "Tu pedido #{$order->id} fue recolectado.", [
             'order_id' => (string) $order->id,
             'type' => 'order_picked_up',
@@ -162,11 +168,6 @@ class OrderController extends Controller
         $order->update(['status' => 'delivered']);
         $this->logEvent($order, 'delivered', $request->user()->id);
 
-        // Pago en efectivo: el mensajero lo cobra al entregar
-        if ($order->payment_method === 'cash' && $order->payment_status !== 'paid') {
-            $order->update(['amount_paid' => $order->price, 'payment_status' => 'paid']);
-            $order->payment?->update(['amount' => $order->price, 'status' => 'paid', 'paid_at' => now()]);
-        }
 
         $push->sendToUser($order->clinic->user, 'Pedido entregado', "Tu pedido #{$order->id} fue entregado en destino.", [
             'order_id' => (string) $order->id,

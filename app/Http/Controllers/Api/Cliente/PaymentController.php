@@ -20,7 +20,7 @@ class PaymentController extends Controller
      * Pago de un pedido. Métodos:
      *  - card: tarjeta (SIMULADO; los datos de la tarjeta nunca llegan al servidor)
      *  - oxxo: genera una ficha de pago; queda pendiente hasta que se confirme el depósito
-     *  - cash: se paga en efectivo al mensajero; se marca pagado al confirmar la entrega
+     *  - cash: se paga en efectivo al mensajero; se marca pagado al confirmar la recolección
      */
     public function pay(Request $request, Order $order)
     {

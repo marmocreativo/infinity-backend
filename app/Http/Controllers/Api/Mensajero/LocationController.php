@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\Location\StoreLocationRequest;
 use App\Models\CourierLocation;
 use App\Models\CourierShift;
+use App\Services\OrderDispatchService;
 use App\Support\Impersonation;
 
 class LocationController extends Controller
@@ -34,11 +35,22 @@ class LocationController extends Controller
         // La ubicación ya quedó guardada. La difusión en tiempo real (Reverb) se hace
         // DESPUÉS de responder: si ese servidor no existe o tarda, el mensajero no espera
         // ni falla su registro.
-        defer(function () use ($location) {
+        $firstOfShift = $shift->locations()->count() === 1;
+
+        defer(function () use ($location, $firstOfShift) {
             try {
                 broadcast(new CourierLocationUpdated($location))->toOthers();
             } catch (\Throwable $e) {
                 report($e);
+            }
+
+            // Con la primera ubicación del turno ya se puede asignar lo que estaba en espera
+            if ($firstOfShift) {
+                try {
+                    app(OrderDispatchService::class)->assignWaiting();
+                } catch (\Throwable $e) {
+                    report($e);
+                }
             }
         });
 

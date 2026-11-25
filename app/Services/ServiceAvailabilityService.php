@@ -32,12 +32,14 @@ class ServiceAvailabilityService
             $message = 'Ya pasó la hora límite de las ' . $this->formatTime($cutoffTime)
                 . '. Tu pedido se programará para mañana y se asignará a primera hora.';
         } elseif ($couriersOnDuty === 0) {
+            // No bloquea: el pedido queda en espera y se avisa al cliente cuando se asigne
             $reason = 'no_couriers';
-            $message = 'Por el momento no hay repartidores en turno. Intenta de nuevo en unos minutos.';
+            $message = 'Por el momento no hay mensajeros en turno. Puedes pedir igual: tu pedido quedará en espera y te avisaremos en cuanto se asigne.';
         }
 
         return [
-            'can_order' => $reason !== 'no_couriers',
+            // Fuera de horario o sin mensajeros ya no bloquea (solo avisa)
+            'can_order' => true,
             'reason' => $reason,
             'message' => $message,
             'scheduled_for' => $scheduledFor,
